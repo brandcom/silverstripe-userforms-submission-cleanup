@@ -9,6 +9,7 @@ use SilverStripe\Core\Config\Configurable;
 use SilverStripe\Core\Injector\Injectable;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\DB;
+use SilverStripe\UserForms\Model\EditableFormField\EditableFileField;
 use SilverStripe\UserForms\Model\Submission\SubmittedFileField;
 use SilverStripe\UserForms\Model\Submission\SubmittedForm;
 use SilverStripe\Versioned\Versioned;
@@ -39,9 +40,19 @@ class SubmissionCleaner
     public const FILE_KEPT = 'kept';
 
     /**
+     * Shared by all cleanup tasks, so cron, HTTP trigger and the orphan task never overlap.
+     */
+    public const LOCK_NAME = 'userforms-submission-cleanup';
+
+    /**
      * Also remove the *_Versions rows of deleted uploads, so filenames do not outlive files.
      */
     private static bool $purge_file_versions = true;
+
+    /**
+     * @var array<int>|null
+     */
+    private ?array $uploadFolderIDs = null;
 
     /**
      * Delete one submission with all field rows and uploaded files.
@@ -71,8 +82,8 @@ class SubmissionCleaner
     /**
      * Archive the file attached to an upload field and detach it from the field.
      *
-     * Files that were reused elsewhere (linked in content, or not flagged as a form upload)
-     * are kept, but still detached so a later cascade on the field cannot touch them.
+     * Files that are not clearly form uploads, are linked in content, or are referenced by
+     * another submission are kept, but still detached so a later cascade on the field cannot touch them.
      *
      * @return string One of the FILE_* constants
      */
@@ -140,6 +151,33 @@ class SubmissionCleaner
     }
 
     /**
+     * Run a callback under an exclusive database lock.
+     *
+     * Returns false without running the callback if another run holds the lock. On databases
+     * without lock support the callback always runs.
+     */
+    public function runExclusive(callable $callback): bool
+    {
+        $db = DB::get_conn();
+        if (!$db->supportsLocks()) {
+            $callback();
+            return true;
+        }
+
+        if (!$db->getLock(self::LOCK_NAME, 0)) {
+            return false;
+        }
+
+        try {
+            $callback();
+        } finally {
+            $db->releaseLock(self::LOCK_NAME);
+        }
+
+        return true;
+    }
+
+    /**
      * Run a callback with versioned reads and writes against the draft stage.
      *
      * @template T
@@ -170,9 +208,7 @@ class SubmissionCleaner
 
     private function isReusedElsewhere(File $file, SubmittedFileField $field): bool
     {
-        // Tri-state flag maintained by UserFormFileExtension. A file not created by a form
-        // must not be deleted just because a submission points at it.
-        if (!$this->inDraft(fn () => $file->isTrackedFormUpload())) {
+        if (!$this->isFormUpload($file)) {
             return true;
         }
 
@@ -184,6 +220,58 @@ class SubmissionCleaner
             ->filter('UploadedFileID', $file->ID)
             ->exclude('ID', $field->ID)
             ->exists();
+    }
+
+    /**
+     * Whether a file was created by a form submission, read without side effects.
+     *
+     * UserFormFileExtension keeps a tri-state flag on the draft row: 't', 'f' or NULL
+     * (unknown, e.g. uploads from before the flag existed). File::isTrackedFormUpload() would
+     * resolve NULL to "upload" as soon as any submission field points at the file, and write
+     * the result back to the database. Old submissions can point at IDs that now belong to
+     * editorial files, so NULL only counts as an upload if the file sits in a folder that a
+     * form upload field writes to. 'f' never counts.
+     */
+    private function isFormUpload(File $file): bool
+    {
+        $schema = DataObject::getSchema();
+        $table = $schema->tableName(File::class);
+        $flag = DB::prepared_query(
+            sprintf('SELECT "UserFormUpload" FROM "%s" WHERE "ID" = ?', $table),
+            [$file->ID]
+        )->value();
+
+        if ($flag === 't') {
+            return true;
+        }
+
+        // NULL/empty: unknown. false: no draft row (live-only file), treat the same way.
+        if ($flag === null || $flag === '' || $flag === false) {
+            return in_array((int) $file->ParentID, $this->uploadFolderIDs(), true);
+        }
+
+        return false;
+    }
+
+    /**
+     * Folders that form upload fields write to (draft and live configuration).
+     *
+     * @return array<int>
+     */
+    private function uploadFolderIDs(): array
+    {
+        if ($this->uploadFolderIDs === null) {
+            $table = DataObject::getSchema()->tableName(EditableFileField::class);
+            $ids = [];
+            foreach ([$table, $table . '_Live'] as $t) {
+                if (DB::get_schema()->hasTable($t)) {
+                    $ids = array_merge($ids, DB::query(sprintf('SELECT "FolderID" FROM "%s"', $t))->column());
+                }
+            }
+            $this->uploadFolderIDs = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        }
+
+        return $this->uploadFolderIDs;
     }
 
     private function detachUpload(SubmittedFileField $field): void

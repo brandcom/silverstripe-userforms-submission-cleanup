@@ -41,7 +41,8 @@ Until the package is listed on Packagist, add the repository first:
 | `--max-runtime=<s>` | Stop after n seconds, the next run continues |
 
 The task exits non-zero if a submission could not be deleted, so cron mail or monitoring
-picks it up.
+picks it up. All cleanup tasks share a database lock: a run that starts while another one is
+active (cron, HTTP, orphan task) is skipped instead of working on the same records.
 
 ### Cron via URL (e.g. All-Inkl)
 
@@ -59,7 +60,7 @@ query string ends up in access logs and on error pages.
 
 - Without the env var, or with a missing or wrong token, the endpoint answers **404**.
 - Each call stops after 20 seconds (shared hosting limits), the next call continues.
-- A DB lock prevents overlapping calls (**409**).
+- While another cleanup run (HTTP or CLI) is active, the call answers **409** and does nothing.
 - `?dry-run=1` only counts. The retention window cannot be changed over HTTP.
 - Plain-text response, status **200**, or **500** on errors.
 
@@ -100,9 +101,18 @@ therefore archives each upload explicitly in draft mode (`doArchive()`): draft r
 the asset in the public or protected store are removed. `doArchive()` keeps `File_Versions`,
 which still holds the filename, so those rows are deleted too (`purge_file_versions`).
 
-A file is **kept** (but detached from the submission) if it was not created by a form
-(`File::isTrackedFormUpload()`), is linked in content (`FileLink`), or is referenced by another
-submission.
+A file is only deleted if it is clearly a form upload. It is **kept** (but detached from the
+submission, and otherwise not modified) if
+
+- its `UserFormUpload` flag is `f`,
+- the flag is empty (older uploads) and the file is not in a folder that a form upload field
+  writes to. Old submissions can point at file IDs that now belong to editorial files,
+- it is linked in content (`FileLink`), or
+- another submission references it.
+
+The flag is read directly from the database. `File::isTrackedFormUpload()` is avoided on
+purpose: it counts an empty flag as upload as soon as any submission points at the file, and
+writes that result back.
 
 ## What this module does not cover
 
@@ -112,6 +122,18 @@ Retention in the database and asset store only. Not covered:
 - database and file backups
 - files on disk without a `File` record
 - server and application logs
+
+## Tests
+
+The suite runs against a temporary database and an isolated asset store. From a project that
+has the module installed and `phpunit/phpunit` ^11 as dev dependency:
+
+```bash
+vendor/bin/phpunit -c vendor/brandcom/silverstripe-userforms-submission-cleanup/phpunit.xml.dist
+```
+
+The database user needs permission to create databases (in DDEV prefix the command with
+`SS_DATABASE_USERNAME=root SS_DATABASE_PASSWORD=root`).
 
 ## License
 

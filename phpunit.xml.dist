@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Run from a Silverstripe project that has this module installed:
+    vendor/bin/phpunit -c vendor/brandcom/silverstripe-userforms-submission-cleanup/phpunit.xml.dist
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.3/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true">
+    <testsuites>
+        <testsuite name="userforms-submission-cleanup">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>

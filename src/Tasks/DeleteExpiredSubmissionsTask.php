@@ -46,6 +46,8 @@ class DeleteExpiredSubmissionsTask extends BuildTask
      */
     private static int $batch_size = 100;
 
+    private bool $skipped = false;
+
     public function getOptions(): array
     {
         return [
@@ -99,7 +101,27 @@ class DeleteExpiredSubmissionsTask extends BuildTask
             @set_time_limit(0);
         }
 
-        return $this->deleteExpired($cutoff, $maxRuntime, $output);
+        $exitCode = Command::SUCCESS;
+        $ran = SubmissionCleaner::singleton()->runExclusive(
+            function () use ($cutoff, $maxRuntime, $output, &$exitCode) {
+                $exitCode = $this->deleteExpired($cutoff, $maxRuntime, $output);
+            }
+        );
+
+        if (!$ran) {
+            $this->skipped = true;
+            $output->writeln('<comment>Another cleanup run is in progress, skipped.</>');
+        }
+
+        return $exitCode;
+    }
+
+    /**
+     * Whether the last run was skipped because another run held the lock.
+     */
+    public function wasSkipped(): bool
+    {
+        return $this->skipped;
     }
 
     private function deleteExpired(string $cutoff, int $maxRuntime, PolyOutput $output): int

@@ -68,9 +68,16 @@ class PurgeOrphanedSubmissionDataTask extends BuildTask
             return Command::SUCCESS;
         }
 
-        $this->removeOrphanedUploads($fileFieldIDs, $output);
-        $this->deleteOrphanedFields($output);
-        $this->purgeGoneUploadVersions($output);
+        $ran = SubmissionCleaner::singleton()->runExclusive(function () use ($fileFieldIDs, $output) {
+            $this->removeOrphanedUploads($fileFieldIDs, $output);
+            $this->deleteOrphanedFields($output);
+            $this->purgeGoneUploadVersions($output);
+        });
+
+        if (!$ran) {
+            $output->writeln('<error>Another cleanup run is in progress, try again later.</>');
+            return Command::FAILURE;
+        }
 
         return Command::SUCCESS;
     }

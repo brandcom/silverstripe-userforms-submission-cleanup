@@ -7,7 +7,6 @@ use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Environment;
-use SilverStripe\ORM\DB;
 use SilverStripe\PolyExecution\PolyOutput;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -27,15 +26,14 @@ use Throwable;
  * The header is preferred: a token in the query string ends up in access logs.
  *
  * Optional: ?dry-run=1 only counts. The retention window is not settable over HTTP.
- * Each call stops after max_runtime seconds; the next call continues.
+ * Each call stops after max_runtime seconds; the next call continues. Answers 409 while
+ * another cleanup run (CLI or HTTP) holds the lock.
  */
 class CleanupController extends Controller
 {
     public const TOKEN_ENV = 'USERFORMS_CLEANUP_TOKEN';
 
     private const MIN_TOKEN_LENGTH = 32;
-
-    private const LOCK_NAME = 'userforms-cleanup';
 
     private static $url_handlers = [
         '' => 'index',
@@ -56,18 +54,12 @@ class CleanupController extends Controller
             return $this->plain('Not found', 404);
         }
 
-        // Two overlapping cron calls must not work on the same submissions.
-        $db = DB::get_conn();
-        $locked = $db->canLock(self::LOCK_NAME);
-        if ($locked && !$db->getLock(self::LOCK_NAME, 0)) {
-            return $this->plain('Cleanup already running', 409);
-        }
-
         $buffer = new BufferedOutput();
         $output = new PolyOutput(PolyOutput::FORMAT_ANSI, OutputInterface::VERBOSITY_NORMAL, false, $buffer);
 
+        $task = DeleteExpiredSubmissionsTask::create();
+
         try {
-            $task = DeleteExpiredSubmissionsTask::create();
             $input = new ArrayInput(
                 array_filter([
                     '--dry-run' => (bool) $request->getVar('dry-run'),
@@ -79,10 +71,10 @@ class CleanupController extends Controller
         } catch (Throwable $e) {
             $output->writeln('Error: ' . $e->getMessage());
             $exitCode = Command::FAILURE;
-        } finally {
-            if ($locked) {
-                $db->releaseLock(self::LOCK_NAME);
-            }
+        }
+
+        if ($task->wasSkipped()) {
+            return $this->plain($buffer->fetch(), 409);
         }
 
         return $this->plain($buffer->fetch(), $exitCode === Command::SUCCESS ? 200 : 500);
