@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 (2026-11-17)
+
+- README: installation from the public repository.
+
 ## 1.0.0 (2026-11-17)
 
 - `tasks:userforms-delete-expired`: deletes submissions older than the retention window,

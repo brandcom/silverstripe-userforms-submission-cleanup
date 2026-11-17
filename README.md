@@ -12,17 +12,17 @@ version history. Runs as a cron task or, for hosts without shell cron, via a tok
 
 ## Installation
 
-The repository is private, so add it as a VCS repository first:
-
-```json
-"repositories": [
-    { "type": "vcs", "url": "git@github.com:brandcom/silverstripe-userforms-submission-cleanup.git" }
-]
-```
-
 ```bash
 composer require brandcom/silverstripe-userforms-submission-cleanup
 vendor/bin/sake dev/build flush=1
+```
+
+Until the package is listed on Packagist, add the repository first:
+
+```json
+"repositories": [
+    { "type": "vcs", "url": "https://github.com/brandcom/silverstripe-userforms-submission-cleanup" }
+]
 ```
 
 ## Usage
