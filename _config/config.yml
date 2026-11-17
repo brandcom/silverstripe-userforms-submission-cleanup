@@ -1,0 +1,10 @@
+---
+Name: userforms-submission-cleanup-routes
+After:
+  - '#rootroutes'
+---
+# HTTP trigger for hosts without shell cron. Inactive until USERFORMS_CLEANUP_TOKEN
+# (min. 32 characters) is set, see Brandcom\UserFormsSubmissionCleanup\Control\CleanupController.
+SilverStripe\Control\Director:
+  rules:
+    '_userforms-cleanup': 'Brandcom\UserFormsSubmissionCleanup\Control\CleanupController'
