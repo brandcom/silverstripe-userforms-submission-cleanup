@@ -1,15 +1,14 @@
 # Silverstripe Userforms Submission Cleanup
 
-[![CI](https://github.com/brandcom/silverstripe-userforms-submission-cleanup/actions/workflows/ci.yml/badge.svg)](https://github.com/brandcom/silverstripe-userforms-submission-cleanup/actions/workflows/ci.yml)
-
 Deletes [userforms](https://github.com/silverstripe/silverstripe-userforms) submissions older
 than a retention window (default 90 days): submission, all field rows, uploaded files and their
 version history. Runs as a cron task or, for hosts without shell cron, via a token-protected URL.
 
 ## Requirements
 
-- Silverstripe 6 (`silverstripe/framework` ^6, `silverstripe/assets` ^3, `silverstripe/versioned` ^3)
-- `silverstripe/userforms` ^7
+- Silverstripe 6 (`silverstripe/framework` ^6.2.13, `silverstripe/assets` ^3.2.4,
+  `silverstripe/versioned` ^3.2.1)
+- `silverstripe/userforms` ^7.1.4
 - PHP 8.3+
 
 ### Tested versions
@@ -21,11 +20,17 @@ upper bound stays at the tested major version.
 
 | | lowest | newest tested |
 | --- | --- | --- |
-| `silverstripe/userforms` | 7.0.0 | 7.1.4 |
-| `silverstripe/framework` | 6.0.0 | 6.3.3 |
+| `silverstripe/userforms` | 7.1.4 | 7.1.4 |
+| `silverstripe/framework` | 6.2.13 | 6.3.8 |
+| `silverstripe/assets` | 3.2.4 | 3.3.2 |
+| `silverstripe/versioned` | 3.2.1 | 3.3.0 |
 
-CI runs the test suite against the lowest versions allowed by `composer.json` and against
-the newest releases (PHP 8.3 and 8.4), on every pull request and weekly.
+The lower bounds are the first releases without known security advisories. Older 6.x/7.x
+releases have published RCE and XSS issues, and Composer 2.9+ refuses to install them anyway.
+The data model the module uses is unchanged since userforms 7.0.0.
+
+The CI workflow runs the test suite against the lowest and the newest versions (PHP 8.3 and
+8.4), on every pull request and weekly.
 
 ## Installation
 
@@ -144,10 +149,11 @@ vendor/bin/phpunit -c vendor/brandcom/silverstripe-userforms-submission-cleanup/
 The database user needs permission to create databases (in DDEV prefix the command with
 `SS_DATABASE_USERNAME=root SS_DATABASE_PASSWORD=root`).
 
-Standalone in the module root (needs `SS_DATABASE_*` in the environment):
+Standalone in the module root (needs `SS_DATABASE_*` in the environment, and stub `Page` and
+`PageController` classes in `app/`, see the step "Project stub" in `.github/workflows/ci.yml`):
 
 ```bash
-composer update                               # newest versions
+composer update                                  # newest versions
 composer update --prefer-lowest --prefer-stable  # lowest allowed versions
 vendor/bin/phpunit
 ```

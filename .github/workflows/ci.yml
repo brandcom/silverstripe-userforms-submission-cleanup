@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # lowest versions allowed by composer.json (userforms 7.0.0, framework 6.0.0)
+          # lowest versions allowed by composer.json (userforms 7.1.4, framework 6.2.13)
           - php: '8.3'
             dependencies: lowest
           # newest releases
@@ -67,7 +67,16 @@ jobs:
           fi
 
       - name: Installed versions
-        run: composer show silverstripe/framework silverstripe/assets silverstripe/versioned silverstripe/userforms | grep -E '^(name|versions)'
+        run: composer show | grep -E '^silverstripe/(framework|assets|versioned|userforms) '
+
+      # silverstripe/cms (pulled in by userforms) expects the project classes Page and
+      # PageController, which a project provides but the module root does not.
+      - name: Project stub
+        run: |
+          mkdir -p app/src app/_config
+          printf -- '---\nName: app\n---\n' > app/_config/app.yml
+          printf '<?php\n\nuse SilverStripe\\CMS\\Model\\SiteTree;\n\nclass Page extends SiteTree\n{\n}\n' > app/src/Page.php
+          printf '<?php\n\nuse SilverStripe\\CMS\\Controllers\\ContentController;\n\nclass PageController extends ContentController\n{\n}\n' > app/src/PageController.php
 
       - name: Code style
         if: matrix.dependencies == 'highest' && matrix.php == '8.3'

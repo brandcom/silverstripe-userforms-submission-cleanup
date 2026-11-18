@@ -2,9 +2,12 @@
 
 ## Unreleased
 
-- CI (GitHub Actions): test suite against the lowest allowed versions (userforms 7.0.0,
-  framework 6.0.0) and the newest releases, PHP 8.3 and 8.4, plus PSR-12 check.
-- README: tested versions of userforms and framework, removed outdated Packagist note.
+- Minimum versions raised to the first releases without known security advisories:
+  `silverstripe/userforms` ^7.1.4, `silverstripe/framework` ^6.2.13, `silverstripe/assets` ^3.2.4,
+  `silverstripe/versioned` ^3.2.1. Composer 2.9+ already refused the older ones.
+- CI (GitHub Actions): test suite against the lowest allowed and the newest versions, PHP 8.3
+  and 8.4, plus PSR-12 check.
+- README: tested versions, removed outdated Packagist note.
 
 ## 1.1.0 (2026-11-17)
 
