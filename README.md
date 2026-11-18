@@ -6,7 +6,7 @@
 > **Under active development.** This module permanently deletes form submissions and uploaded
 > files. It is in production use on a single site so far, and configuration, task names and
 > behaviour may still change between minor releases. Run it with `--dry-run` first, take a
-> database and asset backup, and pin a minor version (e.g. `~1.2.0`) until the module is
+> database and asset backup, and pin a minor version (e.g. `~1.4.0`) until the module is
 > marked stable.
 
 Deletes [userforms](https://github.com/silverstripe/silverstripe-userforms) submissions older

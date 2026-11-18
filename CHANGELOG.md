@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 (2026-11-18)
 
 Fixes from a code review of 1.3.0.
 
