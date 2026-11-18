@@ -5,9 +5,11 @@ namespace Brandcom\UserFormsSubmissionCleanup\Tests;
 use Brandcom\UserFormsSubmissionCleanup\Control\CleanupController;
 use Brandcom\UserFormsSubmissionCleanup\SubmissionCleaner;
 use Brandcom\UserFormsSubmissionCleanup\Tasks\DeleteExpiredSubmissionsTask;
+use Brandcom\UserFormsSubmissionCleanup\Tests\Fixtures\FailingCleaner;
 use SilverStripe\Control\Director;
 use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Environment;
+use SilverStripe\Core\Injector\Injector;
 
 class CleanupControllerTest extends CleanupTestCase
 {
@@ -119,6 +121,21 @@ class CleanupControllerTest extends CleanupTestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('(10 days, from ' . DeleteExpiredSubmissionsTask::RETENTION_ENV . ')', $response->getBody());
         $this->assertFalse($this->formExists($form->ID));
+    }
+
+    public function testErrorInTaskAnswers500WithMessage(): void
+    {
+        $form = $this->createSubmission('2020-01-01 00:00:00');
+        $cleaner = new FailingCleaner();
+        $cleaner->failRun = true;
+        Injector::inst()->registerService($cleaner, SubmissionCleaner::class);
+
+        $response = $this->call('', ['X-Cleanup-Token' => self::TOKEN]);
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertStringContainsString('Error: simulated database failure', $response->getBody());
+        $this->assertStringStartsWith('text/plain', $response->getHeader('Content-Type'));
+        $this->assertTrue($this->formExists($form->ID));
     }
 
     public function testConflictWhileAnotherRunHoldsTheLock(): void

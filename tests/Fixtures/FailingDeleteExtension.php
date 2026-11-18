@@ -7,7 +7,8 @@ use SilverStripe\Dev\TestOnly;
 use TypeError;
 
 /**
- * Throws a PHP Error (not an Exception) while a chosen submission is being deleted.
+ * Throws a PHP Error (not an Exception), or takes its time, while a chosen submission is being
+ * deleted.
  */
 class FailingDeleteExtension extends Extension implements TestOnly
 {
@@ -16,9 +17,18 @@ class FailingDeleteExtension extends Extension implements TestOnly
      */
     public static array $failFor = [];
 
+    /**
+     * @var array<int>
+     */
+    public static array $slowFor = [];
+
     protected function onBeforeDelete(): void
     {
-        if (in_array((int) $this->getOwner()->ID, self::$failFor, true)) {
+        $id = (int) $this->getOwner()->ID;
+        if (in_array($id, self::$slowFor, true)) {
+            usleep(1_100_000);
+        }
+        if (in_array($id, self::$failFor, true)) {
             throw new TypeError('simulated error in an onBeforeDelete hook');
         }
     }

@@ -8,7 +8,7 @@ use SilverStripe\Dev\TestOnly;
 use SilverStripe\UserForms\Model\Submission\SubmittedFileField;
 
 /**
- * Fails on chosen upload fields, e.g. an asset that cannot be deleted.
+ * Fails on chosen upload fields (e.g. an asset that cannot be deleted), or on every run.
  */
 class FailingCleaner extends SubmissionCleaner implements TestOnly
 {
@@ -16,6 +16,17 @@ class FailingCleaner extends SubmissionCleaner implements TestOnly
      * @var array<int>
      */
     public array $failFor = [];
+
+    public bool $failRun = false;
+
+    public function runExclusive(callable $callback): bool
+    {
+        if ($this->failRun) {
+            throw new RuntimeException('simulated database failure');
+        }
+
+        return parent::runExclusive($callback);
+    }
 
     public function removeUpload(SubmittedFileField $field): string
     {

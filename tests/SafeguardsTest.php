@@ -37,7 +37,66 @@ class SafeguardsTest extends CleanupTestCase
     protected function tearDown(): void
     {
         FailingDeleteExtension::$failFor = [];
+        FailingDeleteExtension::$slowFor = [];
         parent::tearDown();
+    }
+
+    public function testStopsAtRuntimeLimitAndNextRunContinues(): void
+    {
+        $first = $this->createSubmission('2026-01-01 00:00:00');
+        $second = $this->createSubmission('2026-01-02 00:00:00');
+        $third = $this->createSubmission('2026-01-03 00:00:00');
+        // the first delete takes longer than the limit
+        FailingDeleteExtension::$slowFor = [(int) $first->ID];
+
+        [$exit, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create(), ['--max-runtime' => '1']);
+
+        $this->assertSame(Command::SUCCESS, $exit, 'hitting the limit is not an error');
+        $this->assertStringContainsString('Deleted 1 submissions', $out);
+        $this->assertStringContainsString('Runtime limit reached', $out);
+        $this->assertFalse($this->formExists($first->ID));
+        $this->assertTrue($this->formExists($second->ID));
+        $this->assertTrue($this->formExists($third->ID));
+
+        [$exit, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create(), ['--max-runtime' => '1']);
+
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('Deleted 2 submissions', $out);
+        $this->assertStringNotContainsString('Runtime limit reached', $out);
+        $this->assertFalse($this->formExists($second->ID));
+        $this->assertFalse($this->formExists($third->ID));
+    }
+
+    public function testFieldPointingAtMissingFileCountsAsAlreadyGone(): void
+    {
+        $form = $this->createSubmission('2026-01-01 00:00:00');
+        $field = $this->attachUpload($form, $this->createUpload('placeholder.pdf'));
+        DB::prepared_query('UPDATE "SubmittedFileField" SET "UploadedFileID" = 999999 WHERE "ID" = ?', [$field->ID]);
+
+        [, $dryOut] = $this->runTask(DeleteExpiredSubmissionsTask::create(), ['--dry-run' => true]);
+        [$exit, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
+
+        $this->assertStringContainsString('0 would be deleted', $dryOut);
+        $this->assertStringContainsString('1 already gone', $dryOut);
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('1 already gone', $out);
+        $this->assertFalse($this->formExists($form->ID));
+    }
+
+    public function testDeletesUploadThatOnlyExistsOnLive(): void
+    {
+        $form = $this->createSubmission('2026-01-01 00:00:00');
+        $file = $this->createUpload('live-only.pdf', 't', true);
+        $this->attachUpload($form, $file);
+        [$filename, $hash] = [$file->getFilename(), $file->getHash()];
+        DB::prepared_query('DELETE FROM "File" WHERE "ID" = ?', [$file->ID]);
+        $this->assertSame(['draft' => 0, 'live' => 1], array_slice($this->fileRowCounts($file->ID), 0, 2));
+
+        [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
+
+        $this->assertStringContainsString('uploaded files: 1 deleted', $out);
+        $this->assertSame(['draft' => 0, 'live' => 0, 'versions' => 0], $this->fileRowCounts($file->ID));
+        $this->assertFalse($this->assetExists($filename, $hash));
     }
 
     public function testRejectsInvalidMaxRuntime(): void
