@@ -15,8 +15,9 @@ Behaviour changes:
   that were already gone.
 - `--dry-run` reports per upload what a real run would do, instead of counting references.
 - The HTTP trigger answers unauthorised calls with the site's regular 404 page.
-- The orphan task decides on version history by the file's last location before deletion, and
-  respects `purge_file_versions: false`.
+- The orphan task decides on version history by the file's last state before deletion: inside
+  an upload folder, and marked as upload or without owner. Editors' files deleted in the CMS keep
+  their history, also in a folder shared with a form. It respects `purge_file_versions: false`.
 
 Fixes:
 

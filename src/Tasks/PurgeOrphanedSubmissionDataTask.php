@@ -271,10 +271,12 @@ class PurgeOrphanedSubmissionDataTask extends BuildTask
     /**
      * Form uploads that are gone from both stages but still have version rows.
      *
-     * Decided by the last state before deletion (highest non-deleted version), with the same
-     * rule as SubmissionCleaner: the file lay in a folder that a form upload field writes or
-     * wrote to, and its flag was not 'f'. A file an editor had moved elsewhere keeps its
-     * history, so it can still be restored from the CMS archive.
+     * Decided by the last state before deletion (highest non-deleted version):
+     * - the file lay in a folder that a form upload field writes or wrote to (a file an editor
+     *   had moved elsewhere keeps its history, so it can still be restored from the CMS archive),
+     * - and it is marked as upload ('t') or has no owner. Upload folders are often shared with
+     *   editors (e.g. the default "Uploads"), and no submission points at a gone file any more.
+     *   Form submissions create files without owner, CMS uploads set the editor as owner.
      *
      * @return array<int>
      */
@@ -297,7 +299,7 @@ class PurgeOrphanedSubmissionDataTask extends BuildTask
                  LEFT JOIN "%1$s" d ON d."ID" = v."RecordID"
                  LEFT JOIN "%1$s_Live" l ON l."ID" = v."RecordID"
                  WHERE d."ID" IS NULL AND l."ID" IS NULL
-                   AND (v."UserFormUpload" IS NULL OR v."UserFormUpload" <> \'f\')
+                   AND (v."UserFormUpload" = \'t\' OR (v."UserFormUpload" IS NULL AND v."OwnerID" = 0))
                    AND v."ParentID" IN (%2$s)',
                 $table,
                 DB::placeholders($folderIDs)

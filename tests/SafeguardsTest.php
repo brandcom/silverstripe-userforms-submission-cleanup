@@ -226,10 +226,16 @@ class SafeguardsTest extends CleanupTestCase
         $this->moveTo($taken, 'Editorial');
         $this->archive($taken);
 
+        // an editor's own file in the shared upload folder, deleted in the CMS: keep history
+        $editorial = $this->createUpload('product.jpg', null);
+        DB::prepared_query('UPDATE "File_Versions" SET "OwnerID" = 5 WHERE "RecordID" = ?', [$editorial->ID]);
+        $this->archive($editorial);
+
         $this->runTask(PurgeOrphanedSubmissionDataTask::create());
 
         $this->assertSame(0, $this->fileRowCounts($upload->ID)['versions']);
         $this->assertGreaterThan(0, $this->fileRowCounts($taken->ID)['versions']);
+        $this->assertGreaterThan(0, $this->fileRowCounts($editorial->ID)['versions']);
     }
 
     private function archive(File $file): void

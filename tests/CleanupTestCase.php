@@ -129,8 +129,15 @@ abstract class CleanupTestCase extends SapphireTest
             if ($publish) {
                 $file->publishSingle();
             }
-            // like UserFormFileExtension: the flag lives on the draft row only
+            // The controller sets 't' before writing, so it reaches the version rows as well.
+            // Flags written later by UserFormFileExtension only reach the draft row.
             DB::prepared_query('UPDATE "File" SET "UserFormUpload" = ? WHERE "ID" = ?', [$flag, $file->ID]);
+            if ($flag === 't') {
+                DB::prepared_query(
+                    'UPDATE "File_Versions" SET "UserFormUpload" = ? WHERE "RecordID" = ?',
+                    [$flag, $file->ID]
+                );
+            }
 
             return $file;
         });

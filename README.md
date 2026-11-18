@@ -115,8 +115,10 @@ If an upload field fails, its row is kept for the next run and the task exits no
 The regular task removes the version history of the uploads it deletes. Uploads that disappeared
 another way (archived in the CMS, deleted by other code) keep their history, which still holds
 the filenames. Run the orphan task now and then, e.g. monthly, to remove it. A gone file only
-counts as upload if its last state before deletion was inside an upload folder, so files an
-editor had taken over stay restorable from the CMS archive.
+counts as upload if its last state before deletion was inside an upload folder and it was
+marked as upload (`t`) or had no owner. Files an editor had moved elsewhere, and editors' own
+files in a folder shared with a form (e.g. the default `Uploads`), stay restorable from the CMS
+archive.
 
 ## Configuration
 
