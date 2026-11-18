@@ -3,6 +3,7 @@
 namespace Brandcom\UserFormsSubmissionCleanup\Tasks;
 
 use Brandcom\UserFormsSubmissionCleanup\SubmissionCleaner;
+use SilverStripe\Core\Environment;
 use SilverStripe\Dev\BuildTask;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBDatetime;
@@ -21,6 +22,9 @@ use Throwable;
  *   vendor/bin/sake tasks:userforms-delete-expired
  *   vendor/bin/sake tasks:userforms-delete-expired --days=30 --dry-run
  *
+ * Retention window, first match wins: --days, env USERFORMS_CLEANUP_RETENTION_DAYS,
+ * config retention_days (default 90).
+ *
  * Config (YAML):
  *   Brandcom\UserFormsSubmissionCleanup\Tasks\DeleteExpiredSubmissionsTask:
  *     retention_days: 90
@@ -29,6 +33,8 @@ use Throwable;
  */
 class DeleteExpiredSubmissionsTask extends BuildTask
 {
+    public const RETENTION_ENV = 'USERFORMS_CLEANUP_RETENTION_DAYS';
+
     protected static string $commandName = 'userforms-delete-expired';
 
     protected string $title = 'Delete expired form submissions';
@@ -55,7 +61,8 @@ class DeleteExpiredSubmissionsTask extends BuildTask
                 'days',
                 null,
                 InputOption::VALUE_REQUIRED,
-                'Retention window in days <comment>[default: retention_days config]</comment>'
+                'Retention window in days <comment>[default: env ' . self::RETENTION_ENV
+                    . ', else retention_days config]</comment>'
             ),
             new InputOption('dry-run', null, InputOption::VALUE_NONE, 'Only report what would be deleted'),
             new InputOption(
@@ -69,9 +76,10 @@ class DeleteExpiredSubmissionsTask extends BuildTask
 
     protected function execute(InputInterface $input, PolyOutput $output): int
     {
-        $days = $input->getOption('days') ?? static::config()->get('retention_days');
-        if (!is_numeric($days) || (int) $days < 1) {
-            $output->writeln('<error>--days must be a positive integer</>');
+        [$days, $source] = $this->retentionDays($input);
+        if (!preg_match('/^[1-9][0-9]*$/', $days)) {
+            // Never fall back to another value: a typo must not widen what gets deleted.
+            $output->writeln(sprintf('<error>%s must be a positive integer, got "%s"</>', $source, $days));
             return Command::INVALID;
         }
         $days = (int) $days;
@@ -80,9 +88,10 @@ class DeleteExpiredSubmissionsTask extends BuildTask
         $dryRun = (bool) $input->getOption('dry-run');
 
         $output->writeln(sprintf(
-            'Deleting submissions created before <info>%s</> (%d days)%s',
+            'Deleting submissions created before <info>%s</> (%d days, from %s)%s',
             $cutoff,
             $days,
+            $source,
             $dryRun ? ' <comment>[dry run]</>' : ''
         ));
 
@@ -114,6 +123,27 @@ class DeleteExpiredSubmissionsTask extends BuildTask
         }
 
         return $exitCode;
+    }
+
+    /**
+     * Retention window as raw string plus where it came from: --days, then the environment
+     * variable, then config. An empty environment variable counts as unset.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function retentionDays(InputInterface $input): array
+    {
+        $option = $input->getOption('days');
+        if ($option !== null) {
+            return [trim((string) $option), '--days'];
+        }
+
+        $env = Environment::getEnv(self::RETENTION_ENV);
+        if ($env !== false && $env !== null && trim((string) $env) !== '') {
+            return [trim((string) $env), self::RETENTION_ENV];
+        }
+
+        return [trim((string) static::config()->get('retention_days')), 'retention_days config'];
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace Brandcom\UserFormsSubmissionCleanup\Tests;
 
 use PDO;
+use Brandcom\UserFormsSubmissionCleanup\Tasks\DeleteExpiredSubmissionsTask;
 use SilverStripe\Assets\Dev\TestAssetStore;
 use SilverStripe\Assets\File;
 use SilverStripe\Assets\Folder;
@@ -33,6 +34,8 @@ abstract class CleanupTestCase extends SapphireTest
 
     protected const NOW = '2026-11-17 12:00:00';
 
+    private mixed $previousRetentionEnv = null;
+
     /**
      * Cutoff for the default 90 days at NOW.
      */
@@ -45,11 +48,19 @@ abstract class CleanupTestCase extends SapphireTest
         parent::setUp();
         DBDatetime::set_mock_now(self::NOW);
         TestAssetStore::activate('UserFormsSubmissionCleanupTest');
+
+        // A retention window set in the host project's .env must not leak into the tests.
+        $this->previousRetentionEnv = Environment::getEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV);
+        Environment::setEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV, '');
     }
 
     protected function tearDown(): void
     {
         $this->releaseForeignLock();
+        Environment::setEnv(
+            DeleteExpiredSubmissionsTask::RETENTION_ENV,
+            (string) ($this->previousRetentionEnv ?: '')
+        );
         TestAssetStore::reset();
         DBDatetime::clear_mock_now();
         parent::tearDown();

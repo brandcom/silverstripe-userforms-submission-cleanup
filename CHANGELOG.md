@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Retention window can be set via `USERFORMS_CLEANUP_RETENTION_DAYS` in `.env`. Order: `--days`,
+  env, `retention_days` config, 90. Applies to the HTTP trigger too.
+- Invalid values stop the task (exit code invalid) instead of falling back. `--days` is now
+  validated as strictly as the env value: `1.5` or `30.0` are rejected, previously cast to an int.
+- Output names the source of the retention window.
+
 ## 1.2.1 (2026-11-18)
 
 - Marked as under active development (README notice, Composer description), CI badge.
