@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (2026-11-18)
 
 - Retention window can be set via `USERFORMS_CLEANUP_RETENTION_DAYS` in `.env`. Order: `--days`,
   env, `retention_days` config, 90. Applies to the HTTP trigger too.
