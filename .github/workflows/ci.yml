@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # weekly, catches breaking releases of userforms or framework
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: PHP ${{ matrix.php }}, ${{ matrix.dependencies }} dependencies
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # lowest versions allowed by composer.json (userforms 7.1.4, framework 6.2.13)
+          - php: '8.3'
+            dependencies: lowest
+          # newest releases
+          - php: '8.3'
+            dependencies: highest
+          - php: '8.4'
+            dependencies: highest
+
+    services:
+      database:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+
+    env:
+      SS_ENVIRONMENT_TYPE: dev
+      SS_DATABASE_CLASS: MySQLDatabase
+      SS_DATABASE_SERVER: 127.0.0.1
+      SS_DATABASE_PORT: 3306
+      SS_DATABASE_USERNAME: root
+      SS_DATABASE_PASSWORD: root
+      SS_DATABASE_NAME: ss_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: intl, pdo_mysql, gd
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ matrix.dependencies }}" = "lowest" ]; then
+            composer update --prefer-lowest --prefer-stable --no-interaction --no-progress
+          else
+            composer update --no-interaction --no-progress
+          fi
+
+      - name: Installed versions
+        run: composer show | grep -E '^silverstripe/(framework|assets|versioned|userforms) '
+
+      # silverstripe/cms (pulled in by userforms) expects the project classes Page and
+      # PageController, which a project provides but the module root does not.
+      - name: Project stub
+        run: |
+          mkdir -p app/src app/_config
+          printf -- '---\nName: app\n---\n' > app/_config/app.yml
+          printf '<?php\n\nuse SilverStripe\\CMS\\Model\\SiteTree;\n\nclass Page extends SiteTree\n{\n}\n' > app/src/Page.php
+          printf '<?php\n\nuse SilverStripe\\CMS\\Controllers\\ContentController;\n\nclass PageController extends ContentController\n{\n}\n' > app/src/PageController.php
+
+      - name: Code style
+        if: matrix.dependencies == 'highest' && matrix.php == '8.3'
+        run: vendor/bin/phpcs
+
+      - name: Tests
+        run: vendor/bin/phpunit
