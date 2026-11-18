@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.1 (2026-11-18)
 
 - Marked as under active development (README notice, Composer description), CI badge.
 
