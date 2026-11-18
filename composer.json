@@ -1,6 +1,6 @@
 {
     "name": "brandcom/silverstripe-userforms-submission-cleanup",
-    "description": "Deletes Silverstripe userforms submissions older than a retention window, including field rows, uploaded files and their version history",
+    "description": "(In development) Deletes Silverstripe userforms submissions older than a retention window, including field rows, uploaded files and their version history",
     "type": "silverstripe-vendormodule",
     "keywords": [
         "silverstripe",
