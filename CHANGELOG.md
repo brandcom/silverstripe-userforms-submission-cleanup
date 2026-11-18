@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- CI (GitHub Actions): test suite against the lowest allowed versions (userforms 7.0.0,
+  framework 6.0.0) and the newest releases, PHP 8.3 and 8.4, plus PSR-12 check.
+- README: tested versions of userforms and framework, removed outdated Packagist note.
+
 ## 1.1.0 (2026-11-17)
 
 - Fix: the lock against overlapping HTTP calls did not work (`canLock()` means "lock is free",

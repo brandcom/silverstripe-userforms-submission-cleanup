@@ -1,5 +1,7 @@
 # Silverstripe Userforms Submission Cleanup
 
+[![CI](https://github.com/brandcom/silverstripe-userforms-submission-cleanup/actions/workflows/ci.yml/badge.svg)](https://github.com/brandcom/silverstripe-userforms-submission-cleanup/actions/workflows/ci.yml)
+
 Deletes [userforms](https://github.com/silverstripe/silverstripe-userforms) submissions older
 than a retention window (default 90 days): submission, all field rows, uploaded files and their
 version history. Runs as a cron task or, for hosts without shell cron, via a token-protected URL.
@@ -10,19 +12,26 @@ version history. Runs as a cron task or, for hosts without shell cron, via a tok
 - `silverstripe/userforms` ^7
 - PHP 8.3+
 
+### Tested versions
+
+The module reads and deletes userforms data partly via raw SQL (`SubmittedFormField.ParentID`,
+`SubmittedFileField.UploadedFileID`, `EditableFileField.FolderID`, `File.UserFormUpload`). A
+schema change in userforms would not cause a Composer conflict but wrong results, so the
+upper bound stays at the tested major version.
+
+| | lowest | newest tested |
+| --- | --- | --- |
+| `silverstripe/userforms` | 7.0.0 | 7.1.4 |
+| `silverstripe/framework` | 6.0.0 | 6.3.3 |
+
+CI runs the test suite against the lowest versions allowed by `composer.json` and against
+the newest releases (PHP 8.3 and 8.4), on every pull request and weekly.
+
 ## Installation
 
 ```bash
 composer require brandcom/silverstripe-userforms-submission-cleanup
 vendor/bin/sake dev/build flush=1
-```
-
-Until the package is listed on Packagist, add the repository first:
-
-```json
-"repositories": [
-    { "type": "vcs", "url": "https://github.com/brandcom/silverstripe-userforms-submission-cleanup" }
-]
 ```
 
 ## Usage
@@ -134,6 +143,14 @@ vendor/bin/phpunit -c vendor/brandcom/silverstripe-userforms-submission-cleanup/
 
 The database user needs permission to create databases (in DDEV prefix the command with
 `SS_DATABASE_USERNAME=root SS_DATABASE_PASSWORD=root`).
+
+Standalone in the module root (needs `SS_DATABASE_*` in the environment):
+
+```bash
+composer update                               # newest versions
+composer update --prefer-lowest --prefer-stable  # lowest allowed versions
+vendor/bin/phpunit
+```
 
 ## License
 
