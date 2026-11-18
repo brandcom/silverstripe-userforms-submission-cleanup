@@ -6,6 +6,7 @@ use Brandcom\UserFormsSubmissionCleanup\SubmissionCleaner;
 use Brandcom\UserFormsSubmissionCleanup\Tasks\DeleteExpiredSubmissionsTask;
 use SilverStripe\Assets\Shortcodes\FileLink;
 use SilverStripe\Core\Config\Config;
+use SilverStripe\Core\Environment;
 use SilverStripe\ORM\DB;
 use SilverStripe\Security\Group;
 use Symfony\Component\Console\Command\Command;
@@ -53,12 +54,57 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
     {
         $form = $this->createSubmission('2020-01-01 00:00:00');
 
-        foreach (['0', '-5', 'abc'] as $days) {
+        foreach (['0', '-5', 'abc', '1.5'] as $days) {
             [$exit] = $this->runTask(DeleteExpiredSubmissionsTask::create(), ['--days' => $days]);
             $this->assertSame(Command::INVALID, $exit, "--days=$days");
         }
 
         $this->assertTrue($this->formExists($form->ID));
+    }
+
+    public function testEnvOverridesConfigAndDaysOverridesEnv(): void
+    {
+        Config::modify()->set(DeleteExpiredSubmissionsTask::class, 'retention_days', 365);
+        $form = $this->createSubmission('2026-10-01 00:00:00');
+
+        Environment::setEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV, '400');
+        [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create(), ['--days' => '30', '--dry-run' => true]);
+        $this->assertStringContainsString('(30 days, from --days)', $out);
+
+        [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
+        $this->assertStringContainsString('(400 days, from ' . DeleteExpiredSubmissionsTask::RETENTION_ENV . ')', $out);
+        $this->assertTrue($this->formExists($form->ID), 'env retention 400 days keeps it');
+
+        Environment::setEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV, ' 30 ');
+        $this->runTask(DeleteExpiredSubmissionsTask::create());
+        $this->assertFalse($this->formExists($form->ID), 'env retention 30 days beats config 365');
+    }
+
+    public function testEmptyEnvFallsBackToConfig(): void
+    {
+        Config::modify()->set(DeleteExpiredSubmissionsTask::class, 'retention_days', 365);
+        Environment::setEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV, '  ');
+        $form = $this->createSubmission('2026-10-01 00:00:00');
+
+        [$exit, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
+
+        $this->assertSame(Command::SUCCESS, $exit);
+        $this->assertStringContainsString('(365 days, from retention_days config)', $out);
+        $this->assertTrue($this->formExists($form->ID));
+    }
+
+    public function testRejectsInvalidEnvWithoutFallback(): void
+    {
+        $form = $this->createSubmission('2020-01-01 00:00:00');
+
+        foreach (['0', '-5', 'abc', '30d', '1.5', '7 days'] as $days) {
+            Environment::setEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV, $days);
+            [$exit, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
+            $this->assertSame(Command::INVALID, $exit, "env=$days");
+            $this->assertStringContainsString(DeleteExpiredSubmissionsTask::RETENTION_ENV, $out);
+        }
+
+        $this->assertTrue($this->formExists($form->ID), 'an invalid env value must not delete anything');
     }
 
     public function testDryRunChangesNothing(): void

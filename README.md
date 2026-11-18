@@ -59,7 +59,7 @@ vendor/bin/sake dev/build flush=1
 
 | Option | |
 | --- | --- |
-| `--days=<n>` | Override the retention window |
+| `--days=<n>` | Override the retention window (beats env and config) |
 | `--dry-run` | Only count what would be deleted |
 | `--max-runtime=<s>` | Stop after n seconds, the next run continues |
 
@@ -84,7 +84,8 @@ query string ends up in access logs and on error pages.
 - Without the env var, or with a missing or wrong token, the endpoint answers **404**.
 - Each call stops after 20 seconds (shared hosting limits), the next call continues.
 - While another cleanup run (HTTP or CLI) is active, the call answers **409** and does nothing.
-- `?dry-run=1` only counts. The retention window cannot be changed over HTTP.
+- `?dry-run=1` only counts. The retention window cannot be changed over HTTP, it comes from
+  `USERFORMS_CLEANUP_RETENTION_DAYS` or the config.
 - Plain-text response, status **200**, or **500** on errors.
 
 ### One-off: orphaned submission data
@@ -102,6 +103,26 @@ the `SubmittedFormField` hierarchy, and purges version history of uploads that a
 Take a database backup first.
 
 ## Configuration
+
+### Retention window
+
+First match wins:
+
+1. `--days=<n>` (CLI only)
+2. `USERFORMS_CLEANUP_RETENTION_DAYS` in `.env`
+3. `retention_days` in YAML (below)
+4. 90 days
+
+```bash
+USERFORMS_CLEANUP_RETENTION_DAYS=60
+```
+
+The value must be a positive whole number. An invalid value (`0`, `30d`, `1.5`, ...) stops the
+task with an error instead of falling back to another source, so a typo never changes what gets
+deleted. An empty variable counts as unset. The first output line names the window and where it
+came from, e.g. `(60 days, from USERFORMS_CLEANUP_RETENTION_DAYS)`.
+
+### YAML
 
 ```yaml
 Brandcom\UserFormsSubmissionCleanup\Tasks\DeleteExpiredSubmissionsTask:

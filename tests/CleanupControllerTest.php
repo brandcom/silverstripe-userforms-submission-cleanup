@@ -4,6 +4,7 @@ namespace Brandcom\UserFormsSubmissionCleanup\Tests;
 
 use Brandcom\UserFormsSubmissionCleanup\Control\CleanupController;
 use Brandcom\UserFormsSubmissionCleanup\SubmissionCleaner;
+use Brandcom\UserFormsSubmissionCleanup\Tasks\DeleteExpiredSubmissionsTask;
 use SilverStripe\Control\Director;
 use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Environment;
@@ -96,6 +97,18 @@ class CleanupControllerTest extends CleanupTestCase
         $this->call('?days=1', ['X-Cleanup-Token' => self::TOKEN]);
 
         $this->assertTrue($this->formExists($form->ID));
+    }
+
+    public function testUsesRetentionFromEnv(): void
+    {
+        $form = $this->createSubmission('2026-11-01 00:00:00');
+        Environment::setEnv(DeleteExpiredSubmissionsTask::RETENTION_ENV, '10');
+
+        $response = $this->call('', ['X-Cleanup-Token' => self::TOKEN]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('(10 days, from ' . DeleteExpiredSubmissionsTask::RETENTION_ENV . ')', $response->getBody());
+        $this->assertFalse($this->formExists($form->ID));
     }
 
     public function testConflictWhileAnotherRunHoldsTheLock(): void
