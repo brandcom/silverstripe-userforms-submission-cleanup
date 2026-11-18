@@ -43,9 +43,15 @@ abstract class CleanupTestCase extends SapphireTest
 
     private ?PDO $lockConnection = null;
 
+    /**
+     * @var array<string>
+     */
+    private array $registeredUploadFolders = [];
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->registeredUploadFolders = [];
         DBDatetime::set_mock_now(self::NOW);
         TestAssetStore::activate('UserFormsSubmissionCleanupTest');
 
@@ -99,6 +105,9 @@ abstract class CleanupTestCase extends SapphireTest
 
     /**
      * A file as userforms creates it: draft only, flagged as form upload, in the upload folder.
+     *
+     * The default folder "Uploads" is registered as upload folder. Other folders are not, tests
+     * register them explicitly where needed.
      */
     protected function createUpload(
         string $name,
@@ -106,6 +115,10 @@ abstract class CleanupTestCase extends SapphireTest
         bool $publish = false,
         string $folder = 'Uploads'
     ): File {
+        if ($folder === 'Uploads') {
+            $this->registerUploadFolder($folder);
+        }
+
         return Versioned::withVersionedMode(function () use ($name, $flag, $publish, $folder) {
             Versioned::set_stage(Versioned::DRAFT);
             $parent = Folder::find_or_make($folder);
@@ -116,8 +129,15 @@ abstract class CleanupTestCase extends SapphireTest
             if ($publish) {
                 $file->publishSingle();
             }
-            // like UserFormFileExtension: the flag lives on the draft row only
+            // The controller sets 't' before writing, so it reaches the version rows as well.
+            // Flags written later by UserFormFileExtension only reach the draft row.
             DB::prepared_query('UPDATE "File" SET "UserFormUpload" = ? WHERE "ID" = ?', [$flag, $file->ID]);
+            if ($flag === 't') {
+                DB::prepared_query(
+                    'UPDATE "File_Versions" SET "UserFormUpload" = ? WHERE "RecordID" = ?',
+                    [$flag, $file->ID]
+                );
+            }
 
             return $file;
         });
@@ -128,6 +148,11 @@ abstract class CleanupTestCase extends SapphireTest
      */
     protected function registerUploadFolder(string $folder): void
     {
+        if (in_array($folder, $this->registeredUploadFolders, true)) {
+            return;
+        }
+        $this->registeredUploadFolders[] = $folder;
+
         $field = EditableFileField::create();
         $field->Name = 'Upload';
         $field->FolderID = Folder::find_or_make($folder)->ID;
@@ -222,7 +247,7 @@ abstract class CleanupTestCase extends SapphireTest
         $this->assertSame(1, (int) $stmt->fetchColumn(), 'Test setup could not take the lock');
     }
 
-    private function releaseForeignLock(): void
+    protected function releaseForeignLock(): void
     {
         $this->lockConnection = null;
     }

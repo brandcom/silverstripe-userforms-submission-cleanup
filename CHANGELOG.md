@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+Fixes from a code review of 1.3.0.
+
+Behaviour changes:
+
+- A file only counts as form upload inside a folder that a form upload field writes to or wrote
+  to (now including the field's version history). The `t` flag alone is no longer enough: a form
+  upload an editor moved to another folder is kept.
+- Files referenced by any record through `has_one` or `many_many` are kept, not only files
+  linked in content or used by another submission.
+- Output separates kept files into "still in use" and "not a form upload", and reports files
+  that were already gone.
+- `--dry-run` reports per upload what a real run would do, instead of counting references.
+- The HTTP trigger answers unauthorised calls with the site's regular 404 page.
+- The orphan task decides on version history by the file's last state before deletion: inside
+  an upload folder, and marked as upload or without owner. Editors' files deleted in the CMS keep
+  their history, also in a folder shared with a form. It respects `purge_file_versions: false`.
+
+Fixes:
+
+- A PHP error (e.g. `TypeError`) while deleting a submission left the database transaction
+  open. Later writes landed in it and were rolled back with the connection, while deleted assets
+  stayed deleted. Transactions are now rolled back on any `Throwable`, and the run aborts if a
+  transaction is left open.
+- `batch_size: 0` made the task loop forever while holding the lock. `batch_size`,
+  `--max-runtime` and the retention window are validated strictly, invalid values stop the task.
+- With `keep_archived_assets: true` deleted uploads stayed in the protected store without any
+  record. The setting is now switched off for the cleanup's archive calls.
+- `purgeFileVersions()` skips files that still exist in a stage and covers version tables of
+  File subclasses. Its second parameter was removed.
+- The orphan task stopped at the first failing upload. Failures are now reported, the field row
+  is kept for the next run, and the task exits non-zero.
+- Submissions are paged by ID, so a submission that is not removed cannot be loaded again.
+- `wasSkipped()` is reset on every run. `max_runtime: 0` no longer removes the HTTP time limit.
+- A failing lock release no longer hides the original error.
+
 ## 1.3.0 (2026-11-18)
 
 - Retention window can be set via `USERFORMS_CLEANUP_RETENTION_DAYS` in `.env`. Order: `--days`,
