@@ -57,6 +57,16 @@ class CleanupControllerTest extends CleanupTestCase
         $this->assertTrue($this->formExists($form->ID));
     }
 
+    public function testRejectionLooksLikeAnyMissingPage(): void
+    {
+        $missing = Director::test('this-page-does-not-exist-ufsc');
+        $rejected = $this->call('?token=wrong');
+
+        $this->assertSame(404, $rejected->getStatusCode());
+        $this->assertSame($missing->getHeader('Content-Type'), $rejected->getHeader('Content-Type'));
+        $this->assertNull($rejected->getHeader('X-Robots-Tag'), 'no header that only this endpoint sends');
+    }
+
     public function testRunsWithHeaderToken(): void
     {
         $old = $this->createSubmission('2020-01-01 00:00:00');

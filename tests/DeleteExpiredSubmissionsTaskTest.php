@@ -118,7 +118,7 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
 
         $this->assertSame(Command::SUCCESS, $exit);
         $this->assertStringContainsString('Submissions: 1', $out);
-        $this->assertStringContainsString('Uploaded files referenced: 1', $out);
+        $this->assertStringContainsString('Uploaded files: 1 would be deleted', $out);
         $this->assertSame($fingerprint, $this->submissionFingerprint($form->ID));
         $this->assertSame(1, $this->fileRowCounts($file->ID)['draft']);
         $this->assertTrue($this->assetExists($file->getFilename(), $file->getHash()));
@@ -194,7 +194,7 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
 
         [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
 
-        $this->assertStringContainsString('1 kept', $out);
+        $this->assertStringContainsString('1 kept (still in use)', $out);
         $this->assertFalse($this->formExists($old->ID));
         $this->assertSame(1, $this->fileRowCounts($shared->ID)['draft']);
         $this->assertTrue($this->assetExists($shared->getFilename(), $shared->getHash()));
@@ -216,7 +216,7 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
 
         [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
 
-        $this->assertStringContainsString('1 kept', $out);
+        $this->assertStringContainsString('1 kept (not a form upload)', $out);
         $this->assertFalse($this->formExists($form->ID));
         $this->assertSame(1, $this->fileRowCounts($editorial->ID)['draft']);
         $this->assertSame(1, $this->fileRowCounts($editorial->ID)['live']);
@@ -235,7 +235,7 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
 
         [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
 
-        $this->assertStringContainsString('1 kept', $out);
+        $this->assertStringContainsString('1 kept (not a form upload)', $out);
         $this->assertFalse($this->formExists($form->ID));
         $this->assertSame($rowBefore, $this->fileRow($file->ID), 'no flag written as side effect');
         $this->assertTrue($this->assetExists($file->getFilename(), $file->getHash()));
@@ -250,20 +250,25 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
 
         [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
 
-        $this->assertStringContainsString('1 uploaded files deleted', $out);
+        $this->assertStringContainsString('uploaded files: 1 deleted', $out);
         $this->assertSame(['draft' => 0, 'live' => 0, 'versions' => 0], $this->fileRowCounts($file->ID));
     }
 
-    public function testFlaggedUploadIsDeletedEvenIfMovedOutOfUploadFolder(): void
+    public function testFlaggedUploadMovedOutOfUploadFolderIsKept(): void
     {
+        // An editor moved the upload to an editorial folder: taken over on purpose, keep it.
         $this->registerUploadFolder('Mail');
         $form = $this->createSubmission('2026-01-01 00:00:00');
-        $file = $this->createUpload('moved.pdf', 't', false, 'Elsewhere');
+        $file = $this->createUpload('moved.pdf', 't', true, 'Elsewhere');
         $this->attachUpload($form, $file);
+        $rowBefore = $this->fileRow($file->ID);
 
-        $this->runTask(DeleteExpiredSubmissionsTask::create());
+        [, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
 
-        $this->assertSame(0, $this->fileRowCounts($file->ID)['draft']);
+        $this->assertStringContainsString('1 kept (not a form upload)', $out);
+        $this->assertFalse($this->formExists($form->ID));
+        $this->assertSame($rowBefore, $this->fileRow($file->ID));
+        $this->assertTrue($this->assetExists($file->getFilename(), $file->getHash()));
     }
 
     public function testKeepsFileLinkedInContent(): void
@@ -294,7 +299,7 @@ class DeleteExpiredSubmissionsTaskTest extends CleanupTestCase
         [$exit, $out] = $this->runTask(DeleteExpiredSubmissionsTask::create());
 
         $this->assertSame(Command::SUCCESS, $exit);
-        $this->assertStringContainsString('Deleted 0 submissions, 0 uploaded files deleted', $out);
+        $this->assertStringContainsString('Deleted 0 submissions, uploaded files: 0 deleted', $out);
     }
 
     public function testProcessesMoreThanOneBatch(): void

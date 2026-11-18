@@ -3,9 +3,11 @@
 namespace Brandcom\UserFormsSubmissionCleanup\Tasks;
 
 use Brandcom\UserFormsSubmissionCleanup\SubmissionCleaner;
+use InvalidArgumentException;
 use SilverStripe\Core\Environment;
 use SilverStripe\Dev\BuildTask;
 use SilverStripe\ORM\DataObject;
+use SilverStripe\ORM\DB;
 use SilverStripe\ORM\FieldType\DBDatetime;
 use SilverStripe\PolyExecution\PolyOutput;
 use SilverStripe\UserForms\Model\Submission\SubmittedFileField;
@@ -76,13 +78,18 @@ class DeleteExpiredSubmissionsTask extends BuildTask
 
     protected function execute(InputInterface $input, PolyOutput $output): int
     {
-        [$days, $source] = $this->retentionDays($input);
-        if (!preg_match('/^[1-9][0-9]*$/', $days)) {
-            // Never fall back to another value: a typo must not widen what gets deleted.
-            $output->writeln(sprintf('<error>%s must be a positive integer, got "%s"</>', $source, $days));
+        $this->skipped = false;
+
+        // Never fall back to another value on invalid input: a typo must not widen what gets
+        // deleted or remove a limit.
+        try {
+            [$days, $source] = $this->retentionDays($input);
+            $maxRuntime = self::parseInt($input->getOption('max-runtime') ?? '0', '--max-runtime', 0);
+            $batchSize = self::parseInt(static::config()->get('batch_size'), 'batch_size config', 1);
+        } catch (InvalidArgumentException $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</>');
             return Command::INVALID;
         }
-        $days = (int) $days;
 
         $cutoff = date('Y-m-d H:i:s', strtotime("-{$days} days", DBDatetime::now()->getTimestamp()));
         $dryRun = (bool) $input->getOption('dry-run');
@@ -100,20 +107,14 @@ class DeleteExpiredSubmissionsTask extends BuildTask
             return Command::SUCCESS;
         }
 
-        $maxRuntime = (int) $input->getOption('max-runtime');
-        if ($maxRuntime < 0) {
-            $output->writeln('<error>--max-runtime must be zero or greater</>');
-            return Command::INVALID;
-        }
-
         if (function_exists('set_time_limit')) {
             @set_time_limit(0);
         }
 
         $exitCode = Command::SUCCESS;
         $ran = SubmissionCleaner::singleton()->runExclusive(
-            function () use ($cutoff, $maxRuntime, $output, &$exitCode) {
-                $exitCode = $this->deleteExpired($cutoff, $maxRuntime, $output);
+            function () use ($cutoff, $maxRuntime, $batchSize, $output, &$exitCode) {
+                $exitCode = $this->deleteExpired($cutoff, $maxRuntime, $batchSize, $output);
             }
         );
 
@@ -126,27 +127,6 @@ class DeleteExpiredSubmissionsTask extends BuildTask
     }
 
     /**
-     * Retention window as raw string plus where it came from: --days, then the environment
-     * variable, then config. An empty environment variable counts as unset.
-     *
-     * @return array{0: string, 1: string}
-     */
-    private function retentionDays(InputInterface $input): array
-    {
-        $option = $input->getOption('days');
-        if ($option !== null) {
-            return [trim((string) $option), '--days'];
-        }
-
-        $env = Environment::getEnv(self::RETENTION_ENV);
-        if ($env !== false && $env !== null && trim((string) $env) !== '') {
-            return [trim((string) $env), self::RETENTION_ENV];
-        }
-
-        return [trim((string) static::config()->get('retention_days')), 'retention_days config'];
-    }
-
-    /**
      * Whether the last run was skipped because another run held the lock.
      */
     public function wasSkipped(): bool
@@ -154,25 +134,69 @@ class DeleteExpiredSubmissionsTask extends BuildTask
         return $this->skipped;
     }
 
-    private function deleteExpired(string $cutoff, int $maxRuntime, PolyOutput $output): int
+    /**
+     * Parse a whole number of at least $min, as given on the CLI, in the environment or in config.
+     *
+     * @throws InvalidArgumentException naming the source of the invalid value
+     */
+    public static function parseInt(mixed $raw, string $source, int $min): int
+    {
+        $value = trim((string) $raw);
+        if (!preg_match('/^[0-9]+$/', $value) || (int) $value < $min) {
+            throw new InvalidArgumentException(sprintf(
+                '%s must be a whole number of at least %d, got "%s"',
+                $source,
+                $min,
+                $value
+            ));
+        }
+
+        return (int) $value;
+    }
+
+    /**
+     * Retention window and where it came from: --days, then the environment variable, then
+     * config. An empty environment variable counts as unset.
+     *
+     * @return array{0: int, 1: string}
+     * @throws InvalidArgumentException if the value from the winning source is not a positive integer
+     */
+    private function retentionDays(InputInterface $input): array
+    {
+        $option = $input->getOption('days');
+        $env = Environment::getEnv(self::RETENTION_ENV);
+
+        if ($option !== null) {
+            [$raw, $source] = [$option, '--days'];
+        } elseif ($env !== false && $env !== null && trim((string) $env) !== '') {
+            [$raw, $source] = [$env, self::RETENTION_ENV];
+        } else {
+            [$raw, $source] = [static::config()->get('retention_days'), 'retention_days config'];
+        }
+
+        return [self::parseInt($raw, $source, 1), $source];
+    }
+
+    private function deleteExpired(string $cutoff, int $maxRuntime, int $batchSize, PolyOutput $output): int
     {
         $deadline = $maxRuntime > 0 ? microtime(true) + $maxRuntime : null;
         $timedOut = false;
         $cleaner = SubmissionCleaner::singleton();
-        $batchSize = (int) static::config()->get('batch_size');
+        $db = DB::get_conn();
+        $depth = $db->supportsTransactions() ? $db->transactionDepth() : 0;
+        $lastID = 0;
         $deleted = 0;
-        $failedIDs = [];
-        $files = [SubmissionCleaner::FILE_DELETED => 0, SubmissionCleaner::FILE_KEPT => 0];
+        $failed = 0;
+        $files = SubmissionCleaner::emptyCounts();
 
         do {
+            // Keyset pagination: every pass moves forward, also past submissions that failed or
+            // that an extension refused to delete.
             $batch = SubmittedForm::get()
-                ->filter('Created:LessThan', $cutoff)
+                ->filter(['Created:LessThan' => $cutoff, 'ID:GreaterThan' => $lastID])
                 ->sort('ID')
-                ->limit($batchSize);
-            if ($failedIDs) {
-                $batch = $batch->exclude('ID', $failedIDs);
-            }
-            $batch = $batch->toArray();
+                ->limit($batchSize)
+                ->toArray();
 
             foreach ($batch as $form) {
                 if ($deadline !== null && microtime(true) >= $deadline) {
@@ -180,18 +204,23 @@ class DeleteExpiredSubmissionsTask extends BuildTask
                     break 2;
                 }
 
+                $lastID = (int) $form->ID;
+
                 try {
-                    $result = $cleaner->deleteSubmission($form);
-                    $files[SubmissionCleaner::FILE_DELETED] += $result[SubmissionCleaner::FILE_DELETED];
-                    $files[SubmissionCleaner::FILE_KEPT] += $result[SubmissionCleaner::FILE_KEPT];
+                    foreach ($cleaner->deleteSubmission($form) as $outcome => $count) {
+                        $files[$outcome] += $count;
+                    }
                     $deleted++;
                 } catch (Throwable $e) {
-                    $failedIDs[] = (int) $form->ID;
-                    $output->writeln(sprintf(
-                        '<error>Submission #%d failed: %s</>',
-                        $form->ID,
-                        $e->getMessage()
-                    ));
+                    $failed++;
+                    $output->writeln(sprintf('<error>Submission #%d failed: %s</>', $form->ID, $e->getMessage()));
+                }
+
+                // Safety net: a transaction left open by any code path would take every later
+                // write with it and be rolled back when the connection closes.
+                if ($db->supportsTransactions() && $db->transactionDepth() !== $depth) {
+                    $output->writeln('<error>Database transaction left open, run aborted.</>');
+                    return Command::FAILURE;
                 }
             }
 
@@ -199,33 +228,59 @@ class DeleteExpiredSubmissionsTask extends BuildTask
         } while (count($batch) === $batchSize);
 
         $output->writeln(sprintf(
-            '<info>Deleted %d submissions</>, %d uploaded files deleted, %d kept (reused elsewhere)',
+            '<info>Deleted %d submissions</>, uploaded files: %s',
             $deleted,
-            $files[SubmissionCleaner::FILE_DELETED],
-            $files[SubmissionCleaner::FILE_KEPT]
+            self::describeFiles($files, false)
         ));
 
         if ($timedOut) {
             $output->writeln('<comment>Runtime limit reached, remaining submissions follow on the next run</>');
         }
 
-        if ($failedIDs) {
-            $output->writeln(sprintf('<error>%d submissions could not be deleted</>', count($failedIDs)));
+        if ($failed) {
+            $output->writeln(sprintf('<error>%d submissions could not be deleted</>', $failed));
             return Command::FAILURE;
         }
 
         return Command::SUCCESS;
     }
 
+    /**
+     * Dry run: count submissions and classify their uploads exactly as a real run would.
+     *
+     * A file shared by several expired submissions counts as kept for each of them here, while
+     * a real run deletes it with the last one.
+     */
     private function report(string $cutoff, PolyOutput $output): void
     {
+        $cleaner = SubmissionCleaner::singleton();
         $forms = SubmittedForm::get()->filter('Created:LessThan', $cutoff);
-        $files = SubmittedFileField::get()->filter([
+        $fields = SubmittedFileField::get()->filter([
             'UploadedFileID:GreaterThan' => 0,
             'Parent.Created:LessThan' => $cutoff,
         ]);
 
+        $files = SubmissionCleaner::emptyCounts();
+        foreach ($fields as $field) {
+            $files[$cleaner->classifyUpload($field)]++;
+        }
+
         $output->writeln(sprintf('Submissions: <info>%d</>', $forms->count()));
-        $output->writeln(sprintf('Uploaded files referenced: <info>%d</>', $files->count()));
+        $output->writeln('Uploaded files: ' . self::describeFiles($files, true));
+    }
+
+    /**
+     * @param array<string,int> $files
+     */
+    public static function describeFiles(array $files, bool $dryRun): string
+    {
+        return sprintf(
+            '%d %s, %d kept (still in use), %d kept (not a form upload), %d already gone',
+            $files[SubmissionCleaner::FILE_DELETED],
+            $dryRun ? 'would be deleted' : 'deleted',
+            $files[SubmissionCleaner::FILE_KEPT],
+            $files[SubmissionCleaner::FILE_FOREIGN],
+            $files[SubmissionCleaner::FILE_NONE]
+        );
     }
 }

@@ -71,7 +71,7 @@ class PurgeOrphanedSubmissionDataTaskTest extends CleanupTestCase
         [, $out] = $this->runTask(PurgeOrphanedSubmissionDataTask::create(), ['--dry-run' => true]);
 
         $this->assertStringContainsString('Orphaned field rows: 2', $out);
-        $this->assertStringContainsString('Uploaded files on orphaned fields: 1', $out);
+        $this->assertStringContainsString('Uploaded files on orphaned fields: 1 would be deleted', $out);
         $this->assertSame(2, $this->fieldCount($orphaned->ID));
         $this->assertSame(1, $this->fileRowCounts($file->ID)['draft']);
     }

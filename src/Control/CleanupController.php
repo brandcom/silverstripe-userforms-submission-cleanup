@@ -21,8 +21,9 @@ use Throwable;
  *   https://example.com/_userforms-cleanup?token=<USERFORMS_CLEANUP_TOKEN>
  *   curl -H "X-Cleanup-Token: <token>" https://example.com/_userforms-cleanup
  *
- * Disabled (404) unless USERFORMS_CLEANUP_TOKEN is set with at least 32 characters.
- * A wrong token also answers 404, so the endpoint does not reveal itself.
+ * Disabled unless USERFORMS_CLEANUP_TOKEN is set with at least 32 characters. Disabled, or
+ * with a missing or wrong token, it answers with the site's regular 404 page, so it cannot be
+ * told apart from a URL that does not exist.
  * The header is preferred: a token in the query string ends up in access logs.
  *
  * Optional: ?dry-run=1 only counts. The retention window is not settable over HTTP.
@@ -51,7 +52,7 @@ class CleanupController extends Controller
     public function index(HTTPRequest $request): HTTPResponse
     {
         if (!$this->isAuthorised($request)) {
-            return $this->plain('Not found', 404);
+            $this->httpError(404);
         }
 
         $buffer = new BufferedOutput();
@@ -63,7 +64,8 @@ class CleanupController extends Controller
             $input = new ArrayInput(
                 array_filter([
                     '--dry-run' => (bool) $request->getVar('dry-run'),
-                    '--max-runtime' => (string) static::config()->get('max_runtime'),
+                    // At least one second: without a limit a call would run into the host's timeout.
+                    '--max-runtime' => (string) max(1, (int) static::config()->get('max_runtime')),
                 ]),
                 new InputDefinition($task->getOptions())
             );

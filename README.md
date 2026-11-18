@@ -60,12 +60,19 @@ vendor/bin/sake dev/build flush=1
 | Option | |
 | --- | --- |
 | `--days=<n>` | Override the retention window (beats env and config) |
-| `--dry-run` | Only count what would be deleted |
-| `--max-runtime=<s>` | Stop after n seconds, the next run continues |
+| `--dry-run` | Only report: submissions, and per upload what a real run would do (deleted, kept, already gone) |
+| `--max-runtime=<s>` | Stop after n seconds, the next run continues (`0` = unlimited) |
 
 The task exits non-zero if a submission could not be deleted, so cron mail or monitoring
 picks it up. All cleanup tasks share a database lock: a run that starts while another one is
 active (cron, HTTP, orphan task) is skipped instead of working on the same records.
+
+Invalid values (`--days`, `--max-runtime`, `batch_size`) stop the task with exit code 2 before
+anything is deleted.
+
+Both tasks are also listed under `/dev/tasks` and can be started in the browser by admins. A
+browser request has no runtime limit there and may run into the web server's timeout: use
+`?dry-run=1` or `?max-runtime=20` in the browser, and the CLI for real runs.
 
 ### Cron via URL (e.g. All-Inkl)
 
@@ -81,14 +88,15 @@ active (cron, HTTP, orphan task) is skipped instead of working on the same recor
 Prefer the header `X-Cleanup-Token: <token>` where the cron tool allows it: a token in the
 query string ends up in access logs and on error pages.
 
-- Without the env var, or with a missing or wrong token, the endpoint answers **404**.
-- Each call stops after 20 seconds (shared hosting limits), the next call continues.
+- Without the env var, or with a missing or wrong token, the endpoint answers with the site's
+  regular **404** page, so it cannot be told apart from a URL that does not exist.
+- Each call stops after 20 seconds (shared hosting limits, at least 1), the next call continues.
 - While another cleanup run (HTTP or CLI) is active, the call answers **409** and does nothing.
 - `?dry-run=1` only counts. The retention window cannot be changed over HTTP, it comes from
   `USERFORMS_CLEANUP_RETENTION_DAYS` or the config.
 - Plain-text response, status **200**, or **500** on errors.
 
-### One-off: orphaned submission data
+### Orphaned submission data and leftover version history
 
 Older cleanup code that deleted `SubmittedForm` via raw SQL often left field rows and uploads
 without a parent submission. The regular task never sees those. Clean them up once:
@@ -99,8 +107,16 @@ vendor/bin/sake tasks:userforms-purge-orphans
 ```
 
 It archives the uploads of orphaned upload fields, deletes orphaned rows from every table of
-the `SubmittedFormField` hierarchy, and purges version history of uploads that are already gone.
-Take a database backup first.
+the `SubmittedFormField` hierarchy, and purges version history of uploads that are already gone
+(only with `purge_file_versions`). Take a database backup first.
+
+If an upload field fails, its row is kept for the next run and the task exits non-zero.
+
+The regular task removes the version history of the uploads it deletes. Uploads that disappeared
+another way (archived in the CMS, deleted by other code) keep their history, which still holds
+the filenames. Run the orphan task now and then, e.g. monthly, to remove it. A gone file only
+counts as upload if its last state before deletion was inside an upload folder, so files an
+editor had taken over stay restorable from the CMS archive.
 
 ## Configuration
 
@@ -145,18 +161,32 @@ therefore archives each upload explicitly in draft mode (`doArchive()`): draft r
 the asset in the public or protected store are removed. `doArchive()` keeps `File_Versions`,
 which still holds the filename, so those rows are deleted too (`purge_file_versions`).
 
-A file is only deleted if it is clearly a form upload. It is **kept** (but detached from the
-submission, and otherwise not modified) if
+Keeping archived assets (`keep_archived_assets`) is switched off for these archive calls only:
+otherwise the asset would move to the protected store and, after the version purge, stay on
+disk without any record.
 
-- its `UserFormUpload` flag is `f`,
-- the flag is empty (older uploads) and the file is not in a folder that a form upload field
-  writes to. Old submissions can point at file IDs that now belong to editorial files,
-- it is linked in content (`FileLink`), or
-- another submission references it.
+A file is only deleted if it is clearly a form upload that nothing else uses. Otherwise it is
+**kept** (detached from the submission, not modified otherwise). The output reports both cases
+separately.
 
-The flag is read directly from the database. `File::isTrackedFormUpload()` is avoided on
-purpose: it counts an empty flag as upload as soon as any submission points at the file, and
-writes that result back.
+Kept as *not a form upload*:
+
+- the file is not inside a folder that a form upload field writes to or wrote to (draft, live or
+  version history of the field). This also covers a form upload that an editor moved to another
+  folder: it was taken over on purpose. Old submissions can also point at file IDs that now
+  belong to editorial files,
+- its `UserFormUpload` flag is `f`.
+
+Kept as *still in use*:
+
+- it is linked in content (`FileLink`),
+- another submission references it, or
+- any other record references it through a `has_one` or `many_many` relation (the same lookup
+  as the "Used on" tab in the CMS).
+
+The `UserFormUpload` flag alone does not make a file an upload. It is read directly from the
+database, `File::isTrackedFormUpload()` is avoided on purpose: it sets the flag to `t` as soon as
+any submission points at the file, and writes that result back.
 
 ## What this module does not cover
 

@@ -15,3 +15,6 @@ foreach ($candidates as $bootstrap) {
 // PHPUnit loads test files before Silverstripe's class manifest is booted, and a dependency's
 // autoload-dev is not registered in a project, so the shared base class is loaded here.
 require_once __DIR__ . '/CleanupTestCase.php';
+foreach (glob(__DIR__ . '/Fixtures/*.php') as $fixture) {
+    require_once $fixture;
+}
