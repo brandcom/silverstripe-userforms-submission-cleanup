@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-11-18)
 
 - Minimum versions raised to the first releases without known security advisories:
   `silverstripe/userforms` ^7.1.4, `silverstripe/framework` ^6.2.13, `silverstripe/assets` ^3.2.4,
