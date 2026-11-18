@@ -1,5 +1,14 @@
 # Silverstripe Userforms Submission Cleanup
 
+[![CI](https://github.com/brandcom/silverstripe-userforms-submission-cleanup/actions/workflows/ci.yml/badge.svg)](https://github.com/brandcom/silverstripe-userforms-submission-cleanup/actions/workflows/ci.yml)
+
+> [!WARNING]
+> **Under active development.** This module permanently deletes form submissions and uploaded
+> files. It is in production use on a single site so far, and configuration, task names and
+> behaviour may still change between minor releases. Run it with `--dry-run` first, take a
+> database and asset backup, and pin a minor version (e.g. `~1.2.0`) until the module is
+> marked stable.
+
 Deletes [userforms](https://github.com/silverstripe/silverstripe-userforms) submissions older
 than a retention window (default 90 days): submission, all field rows, uploaded files and their
 version history. Runs as a cron task or, for hosts without shell cron, via a token-protected URL.

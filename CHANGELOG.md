@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Marked as under active development (README notice, Composer description), CI badge.
+
 ## 1.2.0 (2026-11-18)
 
 - Minimum versions raised to the first releases without known security advisories:
